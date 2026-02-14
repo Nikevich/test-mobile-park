@@ -1,0 +1,11 @@
+- name: Install tools
+  hosts: all
+  become: True
+
+  tasks:
+
+    - name: installing
+      apt:
+        name: "{{required_packages}}"
+        state: present
+        update_cache: yes
