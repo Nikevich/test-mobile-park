@@ -1,5 +1,5 @@
 - name: Set properties
-  hosts: all
+  hosts: worker-1
   become: True
 
   tasks:
@@ -20,6 +20,13 @@
         path: /etc/ssh/sshd_config
         regexp: '^#?PermitRootLogin'
         line: 'PermitRootLogin no'
+        state: present
+
+    - name: disable ssh pass login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
         state: present
 
     - name: restart ssh
