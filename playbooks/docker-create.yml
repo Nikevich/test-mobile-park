@@ -1,0 +1,157 @@
+- name: Init docker claster
+  hosts: swarm
+  become: yes
+
+  vars:
+    manager_port: 2377
+    overlay_networks:
+      - name: db-postgres-net
+      - name: ds-redis-net
+
+  tasks:
+
+    - name: start docker.service
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: take manager
+      ansible.builtin.set_fact:
+        swarm_manager_host_ip: "{{ ansible_host }}"
+        swarm_manager_host_name: "{{ ansible_hostname}}"
+      when: "'manager' in group_names"
+      run_once: true
+
+    - name: init docker swarm on manager
+      community.docker.docker_swarm:
+        advertise_addr: "{{ swarm_manager_host_ip }}"
+        state: present
+        listen_addr: "0.0.0.0:{{ manager_port }}"
+      when: inventory_hostname == swarm_manager_host_name
+      register: swarm_init
+
+    - name: get join tokens on manager
+      community.docker.docker_swarm_info:
+      when: inventory_hostname == swarm_manager_host_name
+      register: swarm_info
+
+    - name: save tokens on manager
+      ansible.builtin.set_fact:
+        swarm_join_token_worker: "{{ swarm_info.swarm_facts.JoinTokens.Worker }}"
+        swarm_join_token_manager: "{{ swarm_info.swarm_facts.JoinTokens.Manager }}"
+        swarm_manager_addr: "{{ ansible_host }}:{{ manager_port }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: get tokens from manager
+      ansible.builtin.set_fact:
+        swarm_join_token_worker: "{{ hostvars[groups['manager'][0]].swarm_join_token_worker }}"
+        swarm_manager_addr: "{{ hostvars[groups['manager'][0]].swarm_manager_addr }}"
+      when: "'worker' in group_names"
+
+    - name: add workers
+      community.docker.docker_swarm:
+        state: join
+        advertise_addr: "{{ ansible_host }}"
+        join_token: "{{ swarm_join_token_worker }}"
+        remote_addrs: "{{ swarm_manager_addr }}"
+      when: "'worker' in group_names"
+      ignore_errors: no
+
+    - name: swarm status
+      ansible.builtin.command: docker node ls
+      changed_when: false
+      register: node_ls
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: print swarm status
+      ansible.builtin.debug:
+        msg: "{{ node_ls.stdout_lines }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: add SERVERTYPE=worker label to workers
+      community.docker.docker_node:
+        hostname: "{{ item }}"
+        labels:
+          SERVERTYPE: worker
+        labels_state: merge
+      loop: "{{ groups['worker'] }}"
+      when: 
+        - swarm_init.changed
+        - inventory_hostname == swarm_manager_host_name
+      run_once: false
+
+    - name: list all networks
+      ansible.builtin.command: docker network ls
+      changed_when: false
+      register: net_ls
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: show networks
+      ansible.builtin.debug:
+        msg: "{{ net_ls.stdout_lines }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: create attachable networks
+      community.docker.docker_network:
+        name: "{{ item.name }}"
+        driver: overlay
+        attachable: true
+        state: present
+      loop: "{{ overlay_networks }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: list all networks (check)
+      ansible.builtin.command: docker network ls
+      changed_when: false
+      register: net_ls
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: show networks
+      ansible.builtin.debug:
+        msg: "{{ net_ls.stdout_lines }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: ensure directory exists on manager
+      ansible.builtin.file:
+        path: /opt/docker-swarm
+        state: directory
+        mode: '0755'
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: copy docker-compose.yml to manager
+      ansible.builtin.copy:
+        src: ../files/docker-compose.yml
+        dest: /opt/docker-swarm/docker-compose.yml
+        mode: '0644'
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: deploy docker stack
+      community.docker.docker_stack:
+        state: present
+        name: ubuntu-stack
+        compose:
+          - /opt/docker-swarm/docker-compose.yml
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: check stack services
+      ansible.builtin.command: docker stack services ubuntu-stack
+      changed_when: false
+      register: stack_services
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: show stack services
+      ansible.builtin.debug:
+        msg: "{{ stack_services.stdout_lines }}"
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: check tasks/placements in stack
+      ansible.builtin.command: docker service ps ubuntu-stack_ubuntu-app
+      changed_when: false
+      register: service_ps
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: show service tasks
+      ansible.builtin.debug:
+        msg: "{{ service_ps.stdout_lines }}"
+      when: inventory_hostname == swarm_manager_host_name

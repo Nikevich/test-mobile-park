@@ -3,3 +3,5 @@ required_packages:
   - ncdu
   - cifs-utils
   - nfs-common
+  - docker
+  - docker.io
