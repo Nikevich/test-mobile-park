@@ -76,9 +76,9 @@
           SERVERTYPE: worker
         labels_state: merge
       loop: "{{ groups['worker'] }}"
-      when: 
-        - swarm_init.changed
-        - inventory_hostname == swarm_manager_host_name
+      when:
+        - inventory_hostname == swarm_manager_host_name 
+        - hostvars[item]['ansible_facts']['docker_node_labels']['SERVERTYPE'] is not defined or hostvars[item]['ansible_facts']['docker_node_labels']['SERVERTYPE'] != 'worker'
       run_once: false
 
     - name: list all networks
