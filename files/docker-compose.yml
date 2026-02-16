@@ -75,11 +75,7 @@ services:
 
   redis:
     image: redis:7
-    command: redis-server --save 60 1 --loglevel warning
-    environment:
-      - REDIS_PASSWORD=redis_nik
-      - REDIS_USER=redis_nik
-      - REDIS_USER_PASSWORD=redis_nik
+    command: redis-server --requirepass redis_nik --save 60 1 --loglevel warning
     networks:
       - ds-redis-net
     deploy:
