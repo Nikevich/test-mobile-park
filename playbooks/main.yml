@@ -1,0 +1,4 @@
+- import_playbook: set-properties.yml
+- import_playbook: install-tools.yml
+- import_playbook: create-users.yml
+- import_playbook: docker-create.yml
