@@ -160,43 +160,19 @@
       when: inventory_hostname == swarm_manager_host_name
       register: image_save_result
 
-
-    # - name: copy image tar to all worker nodes
-    #   ansible.builtin.copy:
-    #     src: /tmp/my-ubuntu-app.tar
-    #     dest: /tmp/my-ubuntu-app.tar
-    #     mode: '0644'
-    #     remote_src: yes
-    #   delegate_to: "{{ swarm_manager_host_name }}"
-    #   when: "'worker' in group_names"
-
-    - name: download tar
-      fetch:
-        src: /tmp/my-ubuntu-app.tar
-        dest: /tmp/my-ubuntu-app.tar
-        flat: yes
+    - name: copy tar my-ubuntu-app
+      ansible.builtin.command: "scp /tmp/my-ubuntu-app.tar ansible@{{ hostvars[item]['ansible_host'] }}"
+      loop: "{{ groups['worker'] }}"
       when: 
-        - image_save_result.changed
         - inventory_hostname == swarm_manager_host_name
-
-    - name: load tar
-      copy:
-        src: /tmp/my-ubuntu-app.tar
-        dest: /tmp/my-ubuntu-app.tar
-        mode: preserve
-      when: 
         - image_save_result.changed
-        - "'worker' in group_names"
+      register: flag_scp
 
     - name: load image from tar on worker nodes
       ansible.builtin.command: docker load -i /tmp/my-ubuntu-app.tar
-      when: "'worker' in group_names"
-
-
-    # - name: clean up tar file on manager
-    #   ansible.builtin.file:
-    #     path: /tmp/my-ubuntu-app.tar
-    #     state: absent
+      when: 
+        - "'worker' in group_names"
+        - flag_scp.changed
 
     - name: deploy docker stack
       community.docker.docker_stack:
