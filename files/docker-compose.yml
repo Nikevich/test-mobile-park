@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   ubuntu-app:
-    image: ubuntu:22.04
+    image: my-ubuntu-app
     command: ["sleep", "infinity"]
 
     environment:

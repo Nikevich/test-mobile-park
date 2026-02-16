@@ -10,6 +10,8 @@
 
   tasks:
 
+# Init Docker Swarm
+
     - name: start docker.service
       ansible.builtin.systemd:
         name: docker
@@ -112,6 +114,8 @@
         msg: "{{ net_ls.stdout_lines }}"
       when: inventory_hostname == swarm_manager_host_name
 
+# Create and pull Docker image
+
     - name: ensure directory exists on manager
       ansible.builtin.file:
         path: /opt/docker-swarm
@@ -126,12 +130,89 @@
         mode: '0644'
       when: inventory_hostname == swarm_manager_host_name
 
+    - name: copy Dockerfile to manager
+      ansible.builtin.copy:
+        src: ../files/Dockerfile
+        dest: /opt/docker-swarm/Dockerfile
+        mode: '0644'
+      when: inventory_hostname == swarm_manager_host_name
+
+    - name: build custom ubuntu image with psql, redis-cli, ping
+      community.docker.docker_image:
+        name: my-ubuntu-app
+        source: build
+        build:
+          path: /opt/docker-swarm
+          pull: yes
+          nocache: no
+          rm: yes
+        state: present
+        force_source: yes
+      when: inventory_hostname == swarm_manager_host_name
+      register: image_build_result
+
+    - name: save built image to tar file on manager
+      community.docker.docker_image:
+        name: my-ubuntu-app:latest
+        state: present
+        source: local
+        archive_path: /tmp/my-ubuntu-app.tar
+      when: inventory_hostname == swarm_manager_host_name
+      register: image_save_result
+
+
+    # - name: copy image tar to all worker nodes
+    #   ansible.builtin.copy:
+    #     src: /tmp/my-ubuntu-app.tar
+    #     dest: /tmp/my-ubuntu-app.tar
+    #     mode: '0644'
+    #     remote_src: yes
+    #   delegate_to: "{{ swarm_manager_host_name }}"
+    #   when: "'worker' in group_names"
+
+    - name: download tar
+      fetch:
+        src: /tmp/my-ubuntu-app.tar
+        dest: /tmp/my-ubuntu-app.tar
+        flat: yes
+      when: 
+        - image_save_result.changed
+        - inventory_hostname == swarm_manager_host_name
+
+    - name: load tar
+      copy:
+        src: /tmp/my-ubuntu-app.tar
+        dest: /tmp/my-ubuntu-app.tar
+        mode: preserve
+      when: 
+        - image_save_result.changed
+        - "'worker' in group_names"
+
+    - name: load image from tar on worker nodes
+      ansible.builtin.command: docker load -i /tmp/my-ubuntu-app.tar
+      when: "'worker' in group_names"
+
+
+    # - name: clean up tar file on manager
+    #   ansible.builtin.file:
+    #     path: /tmp/my-ubuntu-app.tar
+    #     state: absent
+
     - name: deploy docker stack
       community.docker.docker_stack:
         state: present
         name: ubuntu-stack
         compose:
           - /opt/docker-swarm/docker-compose.yml
+        prune: yes
+        resolve_image: never
+      when: inventory_hostname == swarm_manager_host_name
+      register: stack_deploy
+      ignore_errors: yes
+
+    - name: show deploy result
+      ansible.builtin.debug:
+        var: stack_deploy
       when: inventory_hostname == swarm_manager_host_name
 
     - name: check stack services
